@@ -65,12 +65,62 @@
   let fps = 0;
   
   // Для физики
-  let physicsEmotes = new Map(); // Эмодзи с физикой (id -> {element, vx, vy})
+  let physicsEmotes = new Map(); // Эмодзи с физикой (id -> {element, vx, vy, animationType, rotation})
   
   // Для тестового режима
   let testInterval = null;
   let testEmotesPool = []; // Пул эмодзи для тестового режима
   let collectedTestEmotes = new Set(); // Уже собранные эмодзи для тестового режима
+  
+  // === Функция для нормализации весов анимаций ===
+  function normalizeAnimationWeights() {
+    const weights = cfg.animationWeights || { float: 0, physics: 0, rain: 0 };
+    
+    // Убедимся, что все типы анимаций имеют значения
+    const normalized = {
+      float: weights.float || 0,
+      physics: weights.physics || 0,
+      rain: weights.rain || 0
+    };
+    
+    // Проверяем, есть ли хотя бы одна анимация с ненулевым весом
+    const total = normalized.float + normalized.physics + normalized.rain;
+    
+    if (total === 0) {
+      warn("Все веса анимаций равны 0, используется анимация по умолчанию (float)");
+      normalized.float = 1;
+    }
+    
+    return normalized;
+  }
+  
+  // === Функция выбора типа анимации на основе весов ===
+  function selectAnimationType() {
+    const weights = normalizeAnimationWeights();
+    
+    // Считаем суммарный вес
+    const totalWeight = weights.float + weights.physics + weights.rain;
+    
+    // Если сумма весов 0, возвращаем null (без анимации)
+    if (totalWeight === 0) return null;
+    
+    // Генерируем случайное число от 0 до totalWeight
+    const random = Math.random() * totalWeight;
+    
+    // Выбираем анимацию на основе весов
+    let accumulated = 0;
+    
+    // Проверяем float
+    accumulated += weights.float;
+    if (random <= accumulated) return 'float';
+    
+    // Проверяем physics
+    accumulated += weights.physics;
+    if (random <= accumulated) return 'physics';
+    
+    // Иначе rain
+    return 'rain';
+  }
   
   // === Функция для показа дебаг-логов списком ===
   function addDebugLog(...args) {
@@ -424,12 +474,19 @@
   }
   
   // === Получение позиции для появления ===
-  function getSpawnPosition() {
+  function getSpawnPosition(animationType) {
     const margin = cfg.margin;
     const width = window.innerWidth;
     const height = window.innerHeight;
     
-    // Случайная позиция по всему экрану
+    // Для rain - старт сверху за пределами экрана
+    if (animationType === 'rain') {
+      const x = margin + Math.random() * (width - 2 * margin);
+      const y = -100; // Начинаем выше экрана
+      return { x, y };
+    }
+    
+    // Для других анимаций - случайная позиция на экране
     const x = margin + Math.random() * (width - 2 * margin);
     const y = margin + Math.random() * (height - 2 * margin);
     
@@ -437,21 +494,17 @@
   }
   
   // === Применение анимации движения ===
-  function applyMovementAnimation(element) {
+  function applyMovementAnimation(element, animationType) {
     // Всегда применяем fade-in анимацию
     element.style.animation = `fadeIn ${cfg.fadeInDuration}ms ease-out`;
     
-    // Определяем, какие анимации применять
-    const hasFloat = cfg.animationType === 'float' || cfg.animationType === 'float+physics';
-    const needsPhysics = cfg.animationType === 'physics' || cfg.animationType === 'float+physics' || cfg.animationType === 'rain';
-    
-    // Применяем плавающую анимацию если нужно
-    if (hasFloat) {
+    // Добавляем дополнительную анимацию в зависимости от типа
+    if (animationType === 'float') {
       element.style.animation += `, float ${2/cfg.floatSpeed}s infinite ease-in-out`;
     }
     
-    // Возвращаем информацию о том, нужна ли физика
-    return needsPhysics;
+    // Возвращаем, нужна ли физика
+    return animationType === 'physics' || animationType === 'rain';
   }
   
   // === Добавление эмодзи на стену ===
@@ -499,28 +552,50 @@
       return null;
     }
     
+    // Выбираем тип анимации
+    const animationType = selectAnimationType();
+    
     // Создаем элемент
     const emoteData = createEmoteElement(name, url);
     const { id, element } = emoteData;
     
-    // Устанавливаем позицию (для rain - старт сверху)
-    let pos;
-    if (cfg.animationType === 'rain') {
-      const margin = cfg.margin;
-      const width = window.innerWidth;
-      pos = {
-        x: margin + Math.random() * (width - 2 * margin),
-        y: -100 // Начинаем выше экрана
-      };
-    } else {
-      pos = getSpawnPosition();
-    }
+    // Устанавливаем позицию в зависимости от типа анимации
+    const pos = getSpawnPosition(animationType);
     
     element.style.left = `${pos.x}px`;
     element.style.top = `${pos.y}px`;
     
+    // Переменные для скорости и вращения
+    let vx = 0, vy = 0;
+    let rotation = 0; // Угол вращения в градусах
+    
+    // Настраиваем начальную скорость и вращение в зависимости от типа анимации
+    if (animationType === 'rain') {
+      // Для rain: падение с отклонением от основного угла
+      const angleDeviation = cfg.rainAngleDeviation || 0;
+      const randomAngle = cfg.rainAngle + (Math.random() * 2 - 1) * angleDeviation;
+      const rad = randomAngle * Math.PI / 180;
+      
+      vx = Math.cos(rad) * cfg.rainSpeed;
+      vy = Math.sin(rad) * cfg.rainSpeed;
+      
+      // Вращаем эмодзи в направлении движения (чтобы "лицом" вниз по направлению)
+      // Преобразуем угол движения (от горизонтали) в угол вращения
+      // Но вычитаем 90°, потому что в CSS 0° - это вправо, а 90° - вниз
+      rotation = randomAngle - 90;
+      
+      // Применяем вращение
+      element.style.transform = `rotate(${rotation}deg)`;
+      element.style.transformOrigin = 'center';
+      
+    } else if (animationType === 'physics') {
+      // Для физики: случайное начальное движение
+      vx = (Math.random() - 0.5) * 5;
+      vy = -5; // Начальная скорость вверх для эффекта подбрасывания
+    }
+    
     // Применяем анимацию и получаем, нужна ли физика
-    const needsPhysics = applyMovementAnimation(element);
+    const needsPhysics = applyMovementAnimation(element, animationType);
     
     // Добавляем на стену
     emoteWall.appendChild(element);
@@ -529,28 +604,15 @@
     lastSpawnTime = now;
     
     // Если нужна физика
-    if (needsPhysics) {
-      let vx = 0, vy = 0;
-      
-      // Настраиваем начальную скорость в зависимости от типа анимации
-      if (cfg.animationType === 'rain') {
-        // Для rain: падение под углом с заданной скоростью
-        const rad = cfg.rainAngle * Math.PI / 180;
-        vx = Math.cos(rad) * cfg.rainSpeed;
-        vy = Math.sin(rad) * cfg.rainSpeed;
-      } else if (cfg.animationType === 'physics' || cfg.animationType === 'float+physics') {
-        // Для физики: случайное начальное движение
-        vx = (Math.random() - 0.5) * 5;
-        vy = -5; // Начальная скорость вверх для эффекта подбрасывания
-      }
-      
+    if (needsPhysics && animationType) {
       physicsEmotes.set(id, {
         element: element,
         vx: vx,
         vy: vy,
         x: pos.x,
         y: pos.y,
-        animationType: cfg.animationType // Сохраняем тип анимации для обработки
+        animationType: animationType,
+        rotation: rotation // Сохраняем угол вращения для rain
       });
     }
     
@@ -565,8 +627,8 @@
     }
     
     // Логируем только обычные эмодзи, не тестовые
-    if (!fromTest) {
-      log(`➕ Добавлено эмодзи: ${name}`);
+    if (!fromTest && cfg.debug) {
+      log(`➕ Добавлено эмодзи: ${name} (анимация: ${animationType || 'нет'}, угол: ${rotation}°)`);
     }
     
     updateStats();
@@ -597,18 +659,12 @@
   
   // === Обработка физики ===
   function updatePhysics() {
-    // Проверяем, нужна ли физика для текущего типа анимации
-    const needsPhysics = cfg.animationType === 'physics' || cfg.animationType === 'float+physics' || cfg.animationType === 'rain';
-    if (!needsPhysics) return;
-    
-    const now = Date.now();
     physicsEmotes.forEach((data, id) => {
-      // Для rain используем только гравитацию без отскоков
       const isRain = data.animationType === 'rain';
       
       // Обновляем позицию
       if (!isRain) {
-        // Для physics и float+physics добавляем гравитацию
+        // Для physics добавляем гравитацию
         data.vy += cfg.gravity;
       }
       
@@ -660,6 +716,12 @@
       // Применяем позицию
       element.style.left = `${data.x}px`;
       element.style.top = `${data.y}px`;
+      
+      // Для rain: сохраняем постоянное вращение (не крутимся)
+      if (isRain) {
+        // Просто применяем сохраненное вращение, не меняя его
+        element.style.transform = `rotate(${data.rotation}deg)`;
+      }
     });
   }
   
@@ -836,6 +898,10 @@
     
     info("✅ EmoteWall готов к работе!");
     info(`🧪 Тестовый режим: ${cfg.testMode ? 'ВКЛ' : 'ВЫКЛ'}`);
+    
+    // Показываем веса анимаций
+    const weights = normalizeAnimationWeights();
+    info(`🎬 Веса анимаций: float=${weights.float}, physics=${weights.physics}, rain=${weights.rain}`);
   }
   
   // Запускаем инициализацию
