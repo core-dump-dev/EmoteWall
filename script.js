@@ -1,3 +1,4 @@
+// script.js
 // Основной скрипт EmoteWall
 (() => {
   // Получаем конфиг
@@ -44,8 +45,6 @@
   const debugLogContainer = document.getElementById('debug-log-container');
   
   let activeEmotes = new Map(); // Map для активных эмодзи (id -> элемент)
-  let emoteQueue = []; // Очередь эмодзи для отображения
-  let emoteCount = 0; // Счетчик всех эмодзи
   let lastSpawnTime = 0; // Время последнего появления
   let lastEmoteName = null; // Последнее показанное эмодзи
   let emoteCombo = 0; // Счетчик комбо для текущего эмодзи
@@ -137,7 +136,6 @@
   function updateStats() {
     if (cfg.debug) {
       document.getElementById('emote-count').textContent = activeEmotes.size;
-      document.getElementById('total-count').textContent = emoteCount;
       document.getElementById('fps').textContent = fps;
       document.getElementById('test-pool').textContent = testEmotesPool.length;
       statsPanel.classList.add('show');
@@ -397,9 +395,6 @@
     container.style.width = `${size}px`;
     container.style.height = `${size}px`;
     
-    // Скругление углов
-    container.style.borderRadius = `${cfg.borderRadius}px`;
-    
     // Тень
     if (cfg.dropShadow) {
       container.style.filter = `drop-shadow(${cfg.shadowBlur}px ${cfg.shadowBlur}px ${cfg.shadowBlur}px ${cfg.shadowColor})`;
@@ -434,107 +429,29 @@
     const width = window.innerWidth;
     const height = window.innerHeight;
     
-    let x, y;
-    
-    switch(cfg.spawnArea) {
-      case 'top':
-        x = margin + Math.random() * (width - 2 * margin);
-        y = margin;
-        break;
-      case 'bottom':
-        x = margin + Math.random() * (width - 2 * margin);
-        y = height - margin;
-        break;
-      case 'left':
-        x = margin;
-        y = margin + Math.random() * (height - 2 * margin);
-        break;
-      case 'right':
-        x = width - margin;
-        y = margin + Math.random() * (height - 2 * margin);
-        break;
-      case 'random':
-      default:
-        x = margin + Math.random() * (width - 2 * margin);
-        y = margin + Math.random() * (height - 2 * margin);
-        break;
-    }
+    // Случайная позиция по всему экрану
+    const x = margin + Math.random() * (width - 2 * margin);
+    const y = margin + Math.random() * (height - 2 * margin);
     
     return { x, y };
   }
   
-  // === Применение эффекта появления ===
-  function applySpawnEffect(element) {
-    const duration = cfg.fadeInDuration;
-    
-    switch(cfg.spawnEffect) {
-      case 'scale':
-        element.style.animation = `scaleIn ${duration}ms ease-out`;
-        break;
-      case 'rotate':
-        element.style.animation = `rotateIn ${duration}ms ease-out`;
-        break;
-      case 'slide':
-        element.style.animation = `slideIn ${duration}ms ease-out`;
-        break;
-      case 'fade':
-      default:
-        element.style.animation = `fadeIn ${duration}ms ease-out`;
-        break;
-    }
-    
-    // Вращение при появлении
-    if (cfg.spawnRotation) {
-      const rotation = -10 + Math.random() * 20;
-      element.style.transform += ` rotate(${rotation}deg)`;
-    }
-  }
-  
   // === Применение анимации движения ===
   function applyMovementAnimation(element) {
-    switch(cfg.animationType) {
-      case 'bounce':
-        if (cfg.bounceAnimation.enabled) {
-          element.style.animation += `, bounce ${2/cfg.bounceAnimation.speed}s infinite ease-in-out`;
-        }
-        break;
-      case 'fly':
-        if (cfg.flyAnimation.enabled) {
-          // Анимация полета
-          const angle = cfg.flyAnimation.angle;
-          const distance = cfg.flyAnimation.distance;
-          const rad = angle * Math.PI / 180;
-          const dx = Math.cos(rad) * distance;
-          const dy = Math.sin(rad) * distance;
-          
-          element.style.transition = `transform ${cfg.emoteDuration}ms linear`;
-          setTimeout(() => {
-            element.style.transform += ` translate(${dx}px, ${dy}px)`;
-          }, 10);
-        }
-        break;
-      case 'rain':
-        if (cfg.rainAnimation.enabled) {
-          // Эмодзи падают вниз
-          const speed = cfg.rainAnimation.speed;
-          const startY = -100;
-          const endY = window.innerHeight + 100;
-          
-          element.style.transform += ` translateY(${startY}px)`;
-          element.style.transition = `transform ${cfg.emoteDuration}ms linear`;
-          
-          setTimeout(() => {
-            element.style.transform += ` translateY(${endY}px)`;
-          }, 10);
-        }
-        break;
-      case 'float':
-      default:
-        if (cfg.floatAnimation.enabled) {
-          element.style.animation += `, float ${2/cfg.floatAnimation.speed}s infinite ease-in-out`;
-        }
-        break;
+    // Всегда применяем fade-in анимацию
+    element.style.animation = `fadeIn ${cfg.fadeInDuration}ms ease-out`;
+    
+    // Определяем, какие анимации применять
+    const hasFloat = cfg.animationType === 'float' || cfg.animationType === 'float+physics';
+    const needsPhysics = cfg.animationType === 'physics' || cfg.animationType === 'float+physics' || cfg.animationType === 'rain';
+    
+    // Применяем плавающую анимацию если нужно
+    if (hasFloat) {
+      element.style.animation += `, float ${2/cfg.floatSpeed}s infinite ease-in-out`;
     }
+    
+    // Возвращаем информацию о том, нужна ли физика
+    return needsPhysics;
   }
   
   // === Добавление эмодзи на стену ===
@@ -586,32 +503,54 @@
     const emoteData = createEmoteElement(name, url);
     const { id, element } = emoteData;
     
-    // Устанавливаем позицию
-    const pos = getSpawnPosition();
+    // Устанавливаем позицию (для rain - старт сверху)
+    let pos;
+    if (cfg.animationType === 'rain') {
+      const margin = cfg.margin;
+      const width = window.innerWidth;
+      pos = {
+        x: margin + Math.random() * (width - 2 * margin),
+        y: -100 // Начинаем выше экрана
+      };
+    } else {
+      pos = getSpawnPosition();
+    }
+    
     element.style.left = `${pos.x}px`;
     element.style.top = `${pos.y}px`;
     
-    // Применяем эффект появления
-    applySpawnEffect(element);
-    
-    // Применяем анимацию движения
-    applyMovementAnimation(element);
+    // Применяем анимацию и получаем, нужна ли физика
+    const needsPhysics = applyMovementAnimation(element);
     
     // Добавляем на стену
     emoteWall.appendChild(element);
     activeEmotes.set(id, emoteData);
     lastEmoteTimes.set(name, now);
     lastSpawnTime = now;
-    emoteCount++;
     
-    // Если включена физика
-    if (cfg.enablePhysics) {
+    // Если нужна физика
+    if (needsPhysics) {
+      let vx = 0, vy = 0;
+      
+      // Настраиваем начальную скорость в зависимости от типа анимации
+      if (cfg.animationType === 'rain') {
+        // Для rain: падение под углом с заданной скоростью
+        const rad = cfg.rainAngle * Math.PI / 180;
+        vx = Math.cos(rad) * cfg.rainSpeed;
+        vy = Math.sin(rad) * cfg.rainSpeed;
+      } else if (cfg.animationType === 'physics' || cfg.animationType === 'float+physics') {
+        // Для физики: случайное начальное движение
+        vx = (Math.random() - 0.5) * 5;
+        vy = -5; // Начальная скорость вверх для эффекта подбрасывания
+      }
+      
       physicsEmotes.set(id, {
         element: element,
-        vx: (Math.random() - 0.5) * 5,
-        vy: -5, // Начальная скорость вверх
+        vx: vx,
+        vy: vy,
         x: pos.x,
-        y: pos.y
+        y: pos.y,
+        animationType: cfg.animationType // Сохраняем тип анимации для обработки
       });
     }
     
@@ -658,12 +597,21 @@
   
   // === Обработка физики ===
   function updatePhysics() {
-    if (!cfg.enablePhysics) return;
+    // Проверяем, нужна ли физика для текущего типа анимации
+    const needsPhysics = cfg.animationType === 'physics' || cfg.animationType === 'float+physics' || cfg.animationType === 'rain';
+    if (!needsPhysics) return;
     
     const now = Date.now();
     physicsEmotes.forEach((data, id) => {
+      // Для rain используем только гравитацию без отскоков
+      const isRain = data.animationType === 'rain';
+      
       // Обновляем позицию
-      data.vy += cfg.gravity; // Гравитация
+      if (!isRain) {
+        // Для physics и float+physics добавляем гравитацию
+        data.vy += cfg.gravity;
+      }
+      
       data.x += data.vx;
       data.y += data.vy;
       
@@ -671,33 +619,42 @@
       const element = data.element;
       const rect = element.getBoundingClientRect();
       
-      // Правая граница
-      if (data.x + rect.width > window.innerWidth) {
-        data.x = window.innerWidth - rect.width;
-        data.vx = -Math.abs(data.vx) * cfg.bounceDamping;
+      // Для rain: удаляем если ушли за нижнюю границу
+      if (isRain && data.y > window.innerHeight) {
+        removeEmote(id);
+        return;
       }
       
-      // Левая граница
-      if (data.x < 0) {
-        data.x = 0;
-        data.vx = Math.abs(data.vx) * cfg.bounceDamping;
-      }
-      
-      // Нижняя граница
-      if (data.y + rect.height > window.innerHeight) {
-        data.y = window.innerHeight - rect.height;
-        data.vy = -Math.abs(data.vy) * cfg.bounceDamping;
-        
-        // Если скорость слишком мала, останавливаем
-        if (Math.abs(data.vy) < 0.5) {
-          data.vy = 0;
+      // Для physics: обрабатываем отскоки от границ
+      if (!isRain) {
+        // Правая граница
+        if (data.x + rect.width > window.innerWidth) {
+          data.x = window.innerWidth - rect.width;
+          data.vx = -Math.abs(data.vx) * cfg.bounceDamping;
         }
-      }
-      
-      // Верхняя граница
-      if (data.y < 0) {
-        data.y = 0;
-        data.vy = Math.abs(data.vy) * cfg.bounceDamping;
+        
+        // Левая граница
+        if (data.x < 0) {
+          data.x = 0;
+          data.vx = Math.abs(data.vx) * cfg.bounceDamping;
+        }
+        
+        // Нижняя граница
+        if (data.y + rect.height > window.innerHeight) {
+          data.y = window.innerHeight - rect.height;
+          data.vy = -Math.abs(data.vy) * cfg.bounceDamping;
+          
+          // Если скорость слишком мала, останавливаем
+          if (Math.abs(data.vy) < 0.5) {
+            data.vy = 0;
+          }
+        }
+        
+        // Верхняя граница
+        if (data.y < 0) {
+          data.y = 0;
+          data.vy = Math.abs(data.vy) * cfg.bounceDamping;
+        }
       }
       
       // Применяем позицию
@@ -879,19 +836,6 @@
     
     info("✅ EmoteWall готов к работе!");
     info(`🧪 Тестовый режим: ${cfg.testMode ? 'ВКЛ' : 'ВЫКЛ'}`);
-    
-    // Делаем тестовый запуск если в дебаге
-    if (cfg.debug && testEmotesPool.length > 0 && !cfg.testMode) {
-      // Однократный тест при запуске
-      setTimeout(() => {
-        // Пробуем показать одно тестовое эмодзи
-        const randomIndex = Math.floor(Math.random() * testEmotesPool.length);
-        const testEmote = testEmotesPool[randomIndex];
-        if (testEmote && testEmote.url) {
-          addEmoteToWall(testEmote.name, testEmote.url, true);
-        }
-      }, 1000);
-    }
   }
   
   // Запускаем инициализацию

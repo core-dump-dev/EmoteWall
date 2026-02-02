@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -55,29 +56,9 @@
       to { opacity: 0; }
     }
 
-    @keyframes scaleIn {
-      from { transform: scale(0); }
-      to { transform: scale(1); }
-    }
-
-    @keyframes rotateIn {
-      from { transform: rotate(-180deg) scale(0); }
-      to { transform: rotate(0) scale(1); }
-    }
-
-    @keyframes slideIn {
-      from { transform: translateY(-100px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-
     @keyframes float {
       0%, 100% { transform: translateY(0); }
       50% { transform: translateY(-20px); }
-    }
-
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-50px); }
     }
 
     /* Панель статистики */
@@ -143,12 +124,6 @@
       animation: fadeInOut 10s ease-out forwards;
       opacity: 0;
       transform: translateY(10px);
-    }
-
-    .debug-log.light-bg {
-      background-color: rgba(255, 255, 255, 0.8);
-      color: black;
-      border: 1px solid rgba(0, 0, 0, 0.2);
     }
 
     @keyframes fadeInOut {
@@ -222,7 +197,6 @@
   <!-- Панель статистики -->
   <div id="stats-panel" class="stats-panel">
     <div class="stats-item">Эмодзи на экране: <span id="emote-count">0</span></div>
-    <div class="stats-item">Всего показано: <span id="total-count">0</span></div>
     <div class="stats-item">FPS: <span id="fps">0</span></div>
     <div class="stats-item">Тест-пул: <span id="test-pool">0</span></div>
   </div>
