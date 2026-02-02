@@ -158,6 +158,28 @@
       100% { opacity: 0; transform: translateY(-10px); }
     }
 
+    /* Панель тестового режима */
+    .test-panel {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #4CAF50;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: monospace;
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      border: 1px solid #4CAF50;
+    }
+
+    .test-panel.show {
+      opacity: 1;
+    }
+
     /* Индикатор загрузки */
     .loading-indicator {
       position: fixed;
@@ -202,6 +224,13 @@
     <div class="stats-item">Эмодзи на экране: <span id="emote-count">0</span></div>
     <div class="stats-item">Всего показано: <span id="total-count">0</span></div>
     <div class="stats-item">FPS: <span id="fps">0</span></div>
+    <div class="stats-item">Тест-пул: <span id="test-pool">0</span></div>
+  </div>
+
+  <!-- Панель тестового режима -->
+  <div id="test-panel" class="test-panel">
+    <div class="stats-item">🧪 Тестовый режим активен</div>
+    <div class="stats-item">Интервал: <span id="test-interval">0</span>мс</div>
   </div>
 
   <!-- Контейнер для дебаг-сообщений (списком) -->

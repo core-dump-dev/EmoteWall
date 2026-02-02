@@ -1,4 +1,3 @@
-// script.js
 // Основной скрипт EmoteWall
 (() => {
   // Получаем конфиг
@@ -15,17 +14,17 @@
   
   const warn = (...args) => {
     console.warn(LOG_PREFIX, ...args);
-    if (cfg.debugLog) addDebugLog('WARN:', ...args);
+    if (cfg.debugLog) addDebugLog('⚠️', ...args);
   };
   
   const error = (...args) => {
     console.error(LOG_PREFIX, ...args);
-    if (cfg.debugLog) addDebugLog('ERROR:', ...args);
+    if (cfg.debugLog) addDebugLog('❌', ...args);
   };
   
   const info = (...args) => {
     console.info(LOG_PREFIX, ...args);
-    if (cfg.debugLog) addDebugLog('INFO:', ...args);
+    if (cfg.debugLog) addDebugLog('ℹ️', ...args);
   };
   
   // Тестовые эмодзи для каждой платформы
@@ -39,6 +38,7 @@
   // Глобальные переменные
   const emoteWall = document.getElementById('emote-wall');
   const statsPanel = document.getElementById('stats-panel');
+  const testPanel = document.getElementById('test-panel');
   const loadingIndicator = document.getElementById('loading');
   const loadingStatus = document.getElementById('loading-status');
   const debugLogContainer = document.getElementById('debug-log-container');
@@ -68,8 +68,10 @@
   // Для физики
   let physicsEmotes = new Map(); // Эмодзи с физикой (id -> {element, vx, vy})
   
-  // Таймер тестового режима
+  // Для тестового режима
   let testInterval = null;
+  let testEmotesPool = []; // Пул эмодзи для тестового режима
+  let collectedTestEmotes = new Set(); // Уже собранные эмодзи для тестового режима
   
   // === Функция для показа дебаг-логов списком ===
   function addDebugLog(...args) {
@@ -137,9 +139,18 @@
       document.getElementById('emote-count').textContent = activeEmotes.size;
       document.getElementById('total-count').textContent = emoteCount;
       document.getElementById('fps').textContent = fps;
+      document.getElementById('test-pool').textContent = testEmotesPool.length;
       statsPanel.classList.add('show');
     } else {
       statsPanel.classList.remove('show');
+    }
+    
+    // Показываем панель тестового режима если он активен
+    if (cfg.testMode) {
+      document.getElementById('test-interval').textContent = cfg.testInterval;
+      testPanel.classList.add('show');
+    } else {
+      testPanel.classList.remove('show');
     }
   }
   
@@ -194,8 +205,8 @@
     
     info(`✅ Загружено ${emotesLoaded} эмодзи`);
     
-    // Проверяем доступность тестовых эмодзи
-    checkTestEmotesAvailability();
+    // Инициализируем тестовый пул
+    initTestEmotesPool();
   }
   
   async function load7TVEmotes(twitchUserId) {
@@ -309,34 +320,52 @@
     }
   }
   
-  // === Проверка доступности тестовых эмодзи ===
-  function checkTestEmotesAvailability() {
-    if (!cfg.debug) return;
+  // === Инициализация тестового пула эмодзи ===
+  function initTestEmotesPool() {
+    testEmotesPool = [];
+    collectedTestEmotes.clear();
     
-    const unavailable = [];
-    const available = [];
-    
-    // Проверяем тестовые эмодзи для каждой платформы
+    // Добавляем стандартные тестовые эмодзи
     Object.keys(TEST_EMOTES).forEach(platform => {
       TEST_EMOTES[platform].forEach(emoteName => {
         // Проверяем, доступно ли эмодзи
         const url = findEmoteUrl(emoteName);
         if (url) {
-          available.push(`${emoteName} (${platform})`);
-        } else {
-          unavailable.push(`${emoteName} (${platform})`);
+          testEmotesPool.push({ name: emoteName, url: url, source: 'standard' });
+          collectedTestEmotes.add(emoteName);
         }
       });
     });
     
-    // Логируем результаты
-    if (available.length > 0) {
-      log(`✅ Доступные тестовые эмодзи: ${available.join(', ')}`);
+    if (cfg.debug) {
+      log(`🧪 Инициализирован тестовый пул: ${testEmotesPool.length} эмодзи`);
+    }
+  }
+  
+  // === Добавление эмодзи в тестовый пул ===
+  function addEmoteToTestPool(name, url) {
+    // Проверяем, не добавлено ли уже это эмодзи
+    if (collectedTestEmotes.has(name)) {
+      return false;
     }
     
-    if (unavailable.length > 0) {
-      warn(`⚠️ Недоступные тестовые эмодзи: ${unavailable.join(', ')}`);
+    // Проверяем, что URL существует
+    if (!url) {
+      const foundUrl = findEmoteUrl(name);
+      if (!foundUrl) {
+        return false;
+      }
+      url = foundUrl;
     }
+    
+    // Добавляем в пул
+    testEmotesPool.push({ name: name, url: url, source: 'collected' });
+    collectedTestEmotes.add(name);
+    
+    log(`🧪 Добавлено в тестовый пул: ${name} (собрано из чата)`);
+    updateStats();
+    
+    return true;
   }
   
   // === Поиск URL эмодзи по имени ===
@@ -386,6 +415,11 @@
     img.onerror = () => {
       warn(`Не удалось загрузить эмодзи: ${name}`);
       container.style.display = 'none';
+      
+      // Удаляем из тестового пула если есть
+      testEmotesPool = testEmotesPool.filter(emote => emote.name !== name);
+      collectedTestEmotes.delete(name);
+      updateStats();
     };
     
     // Добавляем изображение в контейнер
@@ -504,7 +538,7 @@
   }
   
   // === Добавление эмодзи на стену ===
-  function addEmoteToWall(name, url) {
+  function addEmoteToWall(name, url, fromTest = false) {
     // Проверяем ограничение по количеству
     if (activeEmotes.size >= cfg.maxEmotesOnScreen) {
       // Удаляем самое старое эмодзи
@@ -512,18 +546,19 @@
       removeEmote(oldestId);
     }
     
-    // Проверяем ограничение по времени
     const now = Date.now();
-    if (now - lastSpawnTime < 1000 / cfg.maxEmotesPerSecond) {
-      log(`⏳ Пропуск: слишком много эмодзи в секунду`);
-      return null;
+    
+    // Проверяем ограничение по времени, только если maxEmotesPerSecond > 0
+    if (cfg.maxEmotesPerSecond > 0) {
+      if (now - lastSpawnTime < 1000 / cfg.maxEmotesPerSecond) {
+        return null;
+      }
     }
     
-    // Проверяем спам-фильтр
+    // Проверяем спам-фильтр, только если он включен
     if (cfg.spamFilterEnabled && lastEmoteTimes.has(name)) {
       const lastTime = lastEmoteTimes.get(name);
       if (now - lastTime < cfg.spamFilterTime) {
-        log(`⏳ Пропуск: спам-фильтр для "${name}"`);
         return null;
       }
     }
@@ -538,14 +573,12 @@
       }
       
       if (emoteCombo < cfg.comboRequirement) {
-        log(`⏳ Пропуск: комбо ${emoteCombo} < ${cfg.comboRequirement} для "${name}"`);
         return null;
       }
     }
     
     // Игнорирование дубликатов
     if (cfg.ignoreDuplicates && name === lastEmoteName) {
-      log(`⏳ Пропуск: дубликат "${name}"`);
       return null;
     }
     
@@ -587,7 +620,16 @@
       removeEmote(id);
     }, cfg.emoteDuration);
     
-    log(`➕ Добавлено эмодзи: ${name}`);
+    // Если не из тестового режима и включен тестовый режим, добавляем в пул
+    if (!fromTest && cfg.testMode) {
+      addEmoteToTestPool(name, url);
+    }
+    
+    // Логируем только обычные эмодзи, не тестовые
+    if (!fromTest) {
+      log(`➕ Добавлено эмодзи: ${name}`);
+    }
+    
     updateStats();
     
     return id;
@@ -612,21 +654,6 @@
       physicsEmotes.delete(id);
       updateStats();
     }, cfg.fadeOutDuration);
-  }
-  
-  // === Очистка всех эмодзи ===
-  function clearEmotes() {
-    Array.from(activeEmotes.keys()).forEach(id => {
-      const element = activeEmotes.get(id).element;
-      if (element.parentNode) {
-        element.parentNode.removeChild(element);
-      }
-    });
-    
-    activeEmotes.clear();
-    physicsEmotes.clear();
-    updateStats();
-    log("🧹 Все эмодзи очищены");
   }
   
   // === Обработка физики ===
@@ -684,28 +711,26 @@
     if (!cfg.testMode || testInterval) return;
     
     log("🧪 Запуск тестового режима");
+    log(`🧪 Тестовый пул: ${testEmotesPool.length} эмодзи`);
+    
+    // Если пул пустой, добавляем стандартные
+    if (testEmotesPool.length === 0) {
+      initTestEmotesPool();
+    }
     
     testInterval = setInterval(() => {
-      // Выбираем случайную платформу
-      const platforms = [];
-      if (cfg.enable7tv) platforms.push('7tv');
-      if (cfg.enableBTTV) platforms.push('bttv');
-      if (cfg.enableFFZ) platforms.push('ffz');
-      if (cfg.enableTwitch) platforms.push('twitch');
+      // Проверяем, есть ли эмодзи в пуле
+      if (testEmotesPool.length === 0) {
+        return;
+      }
       
-      if (platforms.length === 0) return;
+      // Выбираем случайное эмодзи из пула
+      const randomIndex = Math.floor(Math.random() * testEmotesPool.length);
+      const testEmote = testEmotesPool[randomIndex];
       
-      const randomPlatform = platforms[Math.floor(Math.random() * platforms.length)];
-      const testEmotes = TEST_EMOTES[randomPlatform];
-      
-      if (testEmotes && testEmotes.length > 0) {
-        const randomEmote = testEmotes[Math.floor(Math.random() * testEmotes.length)];
-        const url = findEmoteUrl(randomEmote);
-        
-        if (url) {
-          addEmoteToWall(randomEmote, url);
-          log(`🧪 Тестовое эмодзи: ${randomEmote} (${randomPlatform})`);
-        }
+      // Показываем эмодзи
+      if (testEmote && testEmote.url) {
+        addEmoteToWall(testEmote.name, testEmote.url, true);
       }
     }, cfg.testInterval);
   }
@@ -727,9 +752,10 @@
   }
   
   // === Обработка сообщений из чата ===
-  function processChatMessage(message, tags) {
+  function processChatMessage(message, tags, username) {
     // Извлекаем слова из сообщения
     const words = message.split(/\s+/);
+    let emoteFound = false;
     
     for (const word of words) {
       const cleanWord = word.trim();
@@ -738,13 +764,14 @@
       // Ищем эмодзи в загруженных коллекциях
       const url = findEmoteUrl(cleanWord);
       if (url) {
-        addEmoteToWall(cleanWord, url);
+        addEmoteToWall(cleanWord, url, false);
+        emoteFound = true;
         break; // Показываем только первое найденное эмодзи из сообщения
       }
     }
     
     // Также проверяем Twitch эмодзи из тегов
-    if (cfg.enableTwitch && tags.emotes) {
+    if (!emoteFound && cfg.enableTwitch && tags.emotes) {
       const emoteData = tags.emotes;
       if (typeof emoteData === 'string') {
         const emotes = emoteData.split('/');
@@ -753,7 +780,7 @@
           if (emoteId) {
             // Twitch эмодзи имеют специальный URL
             const emoteUrl = `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/3.0`;
-            addEmoteToWall(`twitch_${emoteId}`, emoteUrl);
+            addEmoteToWall(`twitch_${emoteId}`, emoteUrl, false);
             break;
           }
         }
@@ -809,7 +836,7 @@
       }
       
       // Обрабатываем сообщение
-      processChatMessage(message, tags);
+      processChatMessage(message, tags, displayName);
     };
     
     ws.onerror = (e) => error("WebSocket ошибка:", e);
@@ -851,20 +878,17 @@
     hideLoadingIndicator();
     
     info("✅ EmoteWall готов к работе!");
+    info(`🧪 Тестовый режим: ${cfg.testMode ? 'ВКЛ' : 'ВЫКЛ'}`);
     
     // Делаем тестовый запуск если в дебаге
-    if (cfg.debug && !cfg.testMode) {
+    if (cfg.debug && testEmotesPool.length > 0 && !cfg.testMode) {
       // Однократный тест при запуске
       setTimeout(() => {
         // Пробуем показать одно тестовое эмодзи
-        const testEmotes = TEST_EMOTES['7tv'];
-        if (testEmotes && testEmotes.length > 0) {
-          const randomEmote = testEmotes[0];
-          const url = findEmoteUrl(randomEmote);
-          if (url) {
-            addEmoteToWall(randomEmote, url);
-            log(`🧪 Тестовое эмодзи при запуске: ${randomEmote}`);
-          }
+        const randomIndex = Math.floor(Math.random() * testEmotesPool.length);
+        const testEmote = testEmotesPool[randomIndex];
+        if (testEmote && testEmote.url) {
+          addEmoteToWall(testEmote.name, testEmote.url, true);
         }
       }, 1000);
     }
