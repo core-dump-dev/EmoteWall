@@ -2,7 +2,7 @@
 // Конфигурация EmoteWall
 window.EmoteWallConfig = {
   // === Общие настройки ===
-  nickname: 'core_dmp',                    // Имя Twitch канала для мониторинга
+  nickname: 'your_channel_name',                    // Имя Twitch канала для мониторинга
   debug: true,                             // Включить отладочное логирование (показывает панель)
   debugLog: true,                          // Показывать всплывающие дебаг-сообщения
   testMode: true,                          // Включить автоматический тестовый режим
