@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Emote Wall</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: transparent;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    #emote-wall {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    .emote {
+      position: absolute;
+      pointer-events: none;
+      user-select: none;
+      will-change: transform, opacity;
+      filter: drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.5));
+      image-rendering: high-quality;
+    }
+
+    .emote img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* Анимации */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+
+    @keyframes scaleIn {
+      from { transform: scale(0); }
+      to { transform: scale(1); }
+    }
+
+    @keyframes rotateIn {
+      from { transform: rotate(-180deg) scale(0); }
+      to { transform: rotate(0) scale(1); }
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(-100px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-50px); }
+    }
+
+    /* Панель статистики */
+    .stats-panel {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: monospace;
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .stats-panel.show {
+      opacity: 1;
+    }
+
+    .stats-item {
+      margin: 2px 0;
+      padding: 2px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .stats-item:last-child {
+      border-bottom: none;
+    }
+
+    /* Контейнер для дебаг-сообщений (списком) */
+    .debug-log-container {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      z-index: 10001;
+      width: auto;
+      max-width: 400px;
+      height: auto;
+      max-height: 300px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column-reverse;
+      pointer-events: none;
+    }
+
+    .debug-log {
+      position: relative;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      max-width: 350px;
+      word-wrap: break-word;
+      margin-top: 5px;
+      animation: fadeInOut 10s ease-out forwards;
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    .debug-log.light-bg {
+      background-color: rgba(255, 255, 255, 0.8);
+      color: black;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+    }
+
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateY(10px); }
+      10% { opacity: 1; transform: translateY(0); }
+      90% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-10px); }
+    }
+
+    /* Индикатор загрузки */
+    .loading-indicator {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      padding: 20px 30px;
+      border-radius: 10px;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 16px;
+      z-index: 10002;
+      text-align: center;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.7);
+    }
+
+    .loading-dots {
+      display: inline-block;
+      animation: loadingDots 1.5s infinite;
+    }
+
+    @keyframes loadingDots {
+      0%, 20% { content: "."; }
+      40% { content: ".."; }
+      60%, 100% { content: "..."; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Индикатор загрузки -->
+  <div id="loading" class="loading-indicator">
+    <div>Загрузка EmoteWall<span class="loading-dots"></span></div>
+    <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;" id="loading-status"></div>
+  </div>
+
+  <!-- Контейнер для всех эмодзи -->
+  <div id="emote-wall"></div>
+
+  <!-- Панель статистики -->
+  <div id="stats-panel" class="stats-panel">
+    <div class="stats-item">Эмодзи на экране: <span id="emote-count">0</span></div>
+    <div class="stats-item">Всего показано: <span id="total-count">0</span></div>
+    <div class="stats-item">FPS: <span id="fps">0</span></div>
+  </div>
+
+  <!-- Контейнер для дебаг-сообщений (списком) -->
+  <div id="debug-log-container" class="debug-log-container"></div>
+
+  <!-- Загружаем конфиг -->
+  <script src="config.js"></script>
+  <!-- Основной скрипт -->
+  <script src="script.js"></script>
+</body>
+</html>
