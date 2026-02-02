@@ -189,15 +189,17 @@
       document.getElementById('fps').textContent = fps;
       document.getElementById('test-pool').textContent = testEmotesPool.length;
       statsPanel.classList.add('show');
+      
+      // Показываем панель тестового режима только если debug включен
+      if (cfg.testMode) {
+        document.getElementById('test-interval').textContent = cfg.testInterval;
+        testPanel.classList.add('show');
+      } else {
+        testPanel.classList.remove('show');
+      }
     } else {
+      // Если debug выключен, скрываем обе панели
       statsPanel.classList.remove('show');
-    }
-    
-    // Показываем панель тестового режима если он активен
-    if (cfg.testMode) {
-      document.getElementById('test-interval').textContent = cfg.testInterval;
-      testPanel.classList.add('show');
-    } else {
       testPanel.classList.remove('show');
     }
   }
